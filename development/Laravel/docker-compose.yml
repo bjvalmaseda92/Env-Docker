@@ -1,0 +1,93 @@
+version: "3.1"
+
+#HTTP Nginx Server
+services:
+    reverse-proxy:
+        image: nginxproxy/nginx-proxy
+        container_name: nginx-proxy
+        restart: always
+        ports:
+            # Port  80: Required for HTTP-01 challenges to `acme-companion`.
+            # Port 443: Only required for containers that need access over HTTPS. TLS-ALPN-01 challenge not supported.
+            - "80:80"
+            - "443:443"
+        volumes:
+            # `certs/`:      Managed by the `acme-companion` container (_read-only_).
+            # `docker.sock`: Required to interact with containers via the Docker API.
+            # `dhparam`:     A named data volume to prevent `nginx-proxy` creating an anonymous volume each time.
+            - ./nginx/nginx-proxy/html/:/usr/share/nginx/html/
+            - ./nginx/nginx-proxy/vhost.d/:/etc/nginx/vhost.d/
+            - ./nginx/acme-companion/certs/:/etc/nginx/certs/:ro
+            - /var/run/docker.sock:/tmp/docker.sock:ro
+            - dhparam:/etc/nginx/dhparam
+        networks:
+            - net
+
+    nginx:
+        image: nginx:stable-alpine
+        container_name: nginx
+        restart: unless-stopped
+        volumes:
+            - ./:/var/www/html
+            - ./nginx/conf/:/etc/nginx/conf.d/:ro
+        depends_on:
+            - php
+            - mysql
+        environment:
+            - VIRTUAL_PORT=80
+            - VIRTUAL_HOST=192.168.1.199,localhost
+        networks:
+            - net
+
+    #MySQL Server
+    mysql:
+        env_file:
+            - ./.env
+        image: mysql:8.0
+        container_name: mysql
+        restart: unless-stopped
+        ports:
+            - 33006:3306
+        volumes:
+            - dbdata:/var/lib/mysql
+        environment:
+            MYSQL_DATABASE: ${DB_DATABASE}
+            MYSQL_USER: ${DB_USERNAME}
+            MYSQL_PASSWORD: ${DB_PASSWORD}
+            MYSQL_ROOT_HOST: "%"
+            MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+        command: "--default-authentication-plugin=mysql_native_password"
+        networks:
+            - net
+
+    #PHP Server
+    php:
+        image: ghcr.io/bjvalmaseda92/laravel-devenv:v1.3.2
+        container_name: php
+        restart: unless-stopped #
+        volumes:
+            - ./:/var/www/html
+            - ./nginx/php/php.ini:/usr/local/etc/php/php.ini
+        networks:
+            - net # red
+        expose:
+            - 9000
+
+    #Mailhog Server for Development Environment
+
+    mailhog:
+        image: mailhog/mailhog
+        container_name: mailhog
+        restart: unless-stopped
+        ports:
+            - 1025:1025
+            - 8025:8025
+        networks:
+            - net
+
+networks: # declaracion de la red
+    net:
+
+volumes:
+    dbdata:
+    dhparam:
